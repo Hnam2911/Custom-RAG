@@ -1,0 +1,44 @@
+# Tệp môi trường và biến nhạy cảm
+.env
+.env.*
+!.env.example
+
+# Byte-compiled / cache của Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Môi trường ảo (Virtual Environments)
+venv/
+.venv/
+env/
+ENV/
+
+# Distribution / packages khi build
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Cache của các công cụ kiểm thử / linter
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Cấu hình IDE / Editor
+.vscode/
+.idea/
+*.swp
