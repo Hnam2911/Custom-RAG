@@ -77,3 +77,42 @@ class GenerationResult:
     user_prompt: str = ""
     finish_reason: str = "STOP"
     is_refusal: bool = False                   # True nếu không tìm thấy thông tin trong tài liệu
+    
+@dataclass
+class EvalSample:
+    """Một mẫu kiểm thử chuẩn (Golden Sample) trong bộ Benchmark."""
+    sample_id: str
+    query: str
+    ground_truth_chunk_ids: List[str] = field(default_factory=list)   # Danh sách chunk_id kỳ vọng
+    expected_substrings: List[str] = field(default_factory=list)      # Các cụm từ/số liệu bắt buộc phải nằm trong chunk truy xuất được
+    reference_answer: str = ""                                        # Câu trả lời chuẩn để đối chiếu
+    expected_refusal: bool = False                                    # True nếu câu hỏi nằm ngoài tài liệu
+
+@dataclass
+class RetrievalEvalReport:
+    """Kết quả đo lường nhánh Retrieval trên 1 câu truy vấn."""
+    sample_id: str
+    k: int
+    hit_rate: float          # 0.0 hoặc 1.0 (Có ít nhất 1 mục tiêu đúng trong Top-K)
+    recall: float            # Tỷ lệ mục tiêu đúng tìm được trên tổng số mục tiêu cần tìm
+    mrr: float               # Mean Reciprocal Rank: 1 / rank_đúng_đầu_tiên
+    ndcg: float              # Normalized Discounted Cumulative Gain [0.0 -> 1.0]
+    retrieved_ids: List[str] = field(default_factory=list)
+    matched_targets: List[str] = field(default_factory=list)
+
+@dataclass
+class ClaimVerification:
+    """Kết quả kiểm chứng từng mệnh đề (claim) đơn lẻ trong câu trả lời của LLM."""
+    claim: str
+    supported: bool          # True nếu mệnh đề có căn cứ trực tiếp trong ngữ cảnh
+    evidence_id: str = ""    # Mã chunk chứng minh mệnh đề đó
+
+@dataclass
+class GenerationEvalReport:
+    """Kết quả chấm điểm nhánh Generation (LLM-as-a-Judge) trên 1 câu truy vấn."""
+    sample_id: str
+    faithfulness: float          # Số mệnh đề có căn cứ / Tổng số mệnh đề [0.0 -> 1.0]
+    answer_relevance: float      # Mức độ giải quyết trọn vẹn câu hỏi [0.0 -> 1.0]
+    citation_precision: float    # Tỷ lệ mã trích dẫn [chunk_id] thực sự chứa thông tin được nói tới [0.0 -> 1.0]
+    claims: List[ClaimVerification] = field(default_factory=list)
+    judge_reasoning: str = ""
