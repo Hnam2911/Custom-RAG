@@ -8,7 +8,8 @@ class RAGConfig:
     embedding_model: str = "models/gemini-embedding-2"
     embedding_dim: int = 768       # Hỗ trợ linh hoạt 128 - 3072 (Khuyên dùng: 768, 1536, 3072)
     embedding_task: str = "search result"  # "search result" hoặc "question answering"
-    llm_model: str = "gemini-3.5-flash"
+    llm_model: str = "gemini-2.5-flash"
+    fallback_llm_model: str = "gemini-2.5-flash-lite"  # Tự động chuyển sang khi model chính bị 503
     
     # Tham số Chunking
     chunk_size: int = 800          # Độ dài mục tiêu của 1 chunk (ký tự)
