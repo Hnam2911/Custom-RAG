@@ -21,8 +21,10 @@ class RAGConfig:
     rrf_k: int = 60                # Hằng số làm mượt Reciprocal Rank Fusion
     weight_dense: float = 0.5      # Trọng số nhánh Vector
     weight_bm25: float = 0.5       # Trọng số nhánh Từ khóa
+    min_dense_cosine: float = 0.30
     
     # Tham số Lọc sau truy xuất (Post-processing)
     top_k_retrieval: int = 10      # Số lượng lấy ra ở mỗi nhánh trước khi trộn
     top_k_final: int = 5           # Số lượng đoạn đưa vào Prompt cuối cùng
-    rrf_score_threshold: float = 0.012 # Ngưỡng cắt bỏ các đoạn không liên quan
+    rrf_score_threshold: float = 0.0075
+    max_merged_chars: int = 1800
