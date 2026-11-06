@@ -32,6 +32,7 @@ class GeminiEmbedder:
         self.task_prefix = task_prefix  # "search result" hoặc "question answering"
         self.is_v2_model = "gemini-embedding-2" in self.model_name
         self.session = requests.Session()
+        self._query_cache: dict[str, np.ndarray] = {}
 
     def _post_with_retry(self, url: str, payload: dict, max_retries: int = 4) -> dict:
         """
@@ -147,6 +148,9 @@ class GeminiEmbedder:
         cleaned_query = query.strip()
         if not cleaned_query:
             raise ValueError("Câu truy vấn (query) không được để trống.")
+        
+        if cleaned_query in self._query_cache:
+            return self._query_cache[cleaned_query]
 
         url = f"{self.BASE_URL}/{self.model_name}:embedContent"
 
@@ -169,4 +173,6 @@ class GeminiEmbedder:
         vec = data.get("embedding", {}).get("values", [])
         if not vec:
             raise RuntimeError("API không trả về vector cho câu truy vấn.")
-        return np.asarray(vec, dtype=np.float32)
+        vec_array = np.asarray(vec, dtype=np.float32)
+        self._query_cache[cleaned_query] = vec_array
+        return vec_array

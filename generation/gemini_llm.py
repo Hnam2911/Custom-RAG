@@ -1,16 +1,31 @@
 import re
 import time
+import random
 import requests
 from typing import List, Dict, Optional
 from config import RAGConfig
 from schema import SearchResult, Citation, GenerationResult
 from generation.prompt_builder import PromptBuilder
 
+class SharedRateLimiter:
+    """
+    Bộ điều tiết nhịp độ gọi API toàn cục (Singleton Pacer).
+    Đảm bảo khoảng cách giữa 2 request liên tiếp (dù từ Generator hay Judge) luôn >= 60 / max_rpm.
+    """
+    _last_request_time: float = 0.0
+
+    @classmethod
+    def wait_for_slot(cls, max_rpm: int) -> None:
+        if max_rpm <= 0:
+            return
+        min_interval = 60.0 / float(max_rpm)
+        elapsed = time.time() - cls._last_request_time
+        if elapsed < min_interval:
+            time.sleep(min_interval - elapsed)
+        cls._last_request_time = time.time()
+
+
 class GeminiLLMGenerator:
-    """
-    Bộ gọi mô hình ngôn ngữ lớn (Gemini LLM) qua REST API thuần.
-    Tích hợp cơ chế ngắt mạch khi không có ngữ cảnh, retry backoff và xác thực trích dẫn nguồn.
-    """
     BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 
     def __init__(
@@ -24,19 +39,34 @@ class GeminiLLMGenerator:
             raise ValueError("Vui lòng cung cấp GEMINI_API_KEY hợp lệ trong RAGConfig.")
         self.config = config
         self.api_key = config.gemini_api_key
-        self.model_name = (
-            config.llm_model
-            if config.llm_model.startswith("models/")
-            else f"models/{config.llm_model}"
+        self.model_name = self._normalize_model_name(config.llm_model)
+        self.fallback_model_name = (
+            self._normalize_model_name(config.fallback_llm_model)
+            if getattr(config, "fallback_llm_model", "")
+            else ""
         )
+        self.max_rpm = getattr(config, "max_rpm", 10)
         self.prompt_builder = prompt_builder or PromptBuilder()
         self.temperature = temperature
         self.max_output_tokens = max_output_tokens
         self.session = requests.Session()
 
-    def _post_with_retry(self, url: str, payload: dict, max_retries: int = 3) -> dict:
-        """Gửi HTTP POST tới Gemini API kèm cơ chế Exponential Backoff."""
+    @staticmethod
+    def _normalize_model_name(name: str) -> str:
+        return name if name.startswith("models/") else f"models/{name}"
+
+    def _post_with_retry(self, payload: dict, max_retries: int = 4) -> dict:
+        """
+        Gửi HTTP POST có điều tiết RPM, chờ thông minh theo mã lỗi (429 vs 503)
+        và tự động chuyển sang fallback_llm_model nếu model chính bị quá tải (503).
+        """
+        active_model = self.model_name
+
         for attempt in range(max_retries):
+            # 1. Chờ đúng nhịp RPM trước khi bắn request
+            SharedRateLimiter.wait_for_slot(self.max_rpm)
+            url = f"{self.BASE_URL}/{active_model}:generateContent"
+
             try:
                 response = self.session.post(
                     url,
@@ -48,17 +78,31 @@ class GeminiLLMGenerator:
                 if response.status_code == 200:
                     return response.json()
 
+                # Xử lý quá tải cục bộ (503) hoặc chạm trần RPM (429)
                 if response.status_code in (429, 500, 502, 503, 504) and attempt < max_retries - 1:
-                    wait_time = (2 ** attempt) + 0.5
+                    # Nếu gặp 503 (Model Overloaded) và có model dự phòng -> chuyển sang model dự phòng ở lần thử kế tiếp
+                    if response.status_code == 503 and self.fallback_model_name and active_model != self.fallback_model_name:
+                        print(f"[Cảnh báo 503] {active_model} đang quá tải, tự động chuyển sang {self.fallback_model_name}...")
+                        active_model = self.fallback_model_name
+                        time.sleep(2.0)
+                        continue
+
+                    # Nếu gặp 429 (Hết quota phút) -> nghỉ dài (15s, 30s, 45s) để chờ reset cửa sổ 1 phút
+                    base_wait = 15.0 * (attempt + 1) if response.status_code == 429 else 8.0 * (attempt + 1)
+                    jitter = random.uniform(0.5, 2.5)
+                    wait_time = base_wait + jitter
+                    print(f"[HTTP {response.status_code}] Đang tạm nghỉ {wait_time:.1f}s trước khi thử lại (lần {attempt + 1}/{max_retries - 1})...")
                     time.sleep(wait_time)
+                    SharedRateLimiter. _last_request_time = time.time()
                     continue
 
                 raise RuntimeError(f"Gemini LLM API lỗi ({response.status_code}): {response.text}")
             except requests.RequestException as e:
                 if attempt < max_retries - 1:
-                    time.sleep(2 ** attempt)
+                    time.sleep(5.0 * (attempt + 1))
                     continue
                 raise RuntimeError(f"Lỗi kết nối mạng khi gọi Gemini LLM API: {e}") from e
+
         raise RuntimeError("Đã vượt quá số lần thử lại khi gọi Gemini LLM API.")
 
     def generate(self, query: str, search_results: List[SearchResult]) -> GenerationResult:
@@ -98,7 +142,7 @@ class GeminiLLMGenerator:
             }
         }
 
-        data = self._post_with_retry(url, payload)
+        data = self._post_with_retry(payload)
         answer_text, finish_reason = self._parse_response_safely(data)
 
         # Kiểm tra xem LLM có từ chối trả lời do thiếu thông tin hay không
