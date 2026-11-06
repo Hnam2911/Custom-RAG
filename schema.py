@@ -54,3 +54,26 @@ class SearchResult:
     bm25_rank: Optional[int] = None
     dense_score: Optional[float] = None
     bm25_score: Optional[float] = None
+    
+@dataclass
+class Citation:
+    """Thông tin trích dẫn đã được đối chiếu ngược về vị trí ký tự trên tài liệu gốc."""
+    chunk_id: str
+    source_file: str
+    page_number: Optional[int]
+    start_char_idx: int
+    end_char_idx: int
+    block_type: str
+    parent_heading: str = ""
+
+@dataclass
+class GenerationResult:
+    """Kết quả đầu ra hoàn chỉnh của Tầng 5 (Generation)."""
+    query: str
+    answer: str
+    citations: List[Citation]                  # Danh sách nguồn thực sự được LLM trích dẫn hợp lệ
+    used_contexts: List[SearchResult]          # Toàn bộ các đoạn ngữ cảnh đã đưa vào Prompt
+    system_prompt: str = ""
+    user_prompt: str = ""
+    finish_reason: str = "STOP"
+    is_refusal: bool = False                   # True nếu không tìm thấy thông tin trong tài liệu
