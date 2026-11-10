@@ -12,7 +12,7 @@ class GeminiEmbedder:
     cũng như tương thích ngược với 'models/gemini-embedding-001'.
     """
     BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
-    MAX_BATCH_SIZE = 100  # Giới hạn số lượng request tối đa trong 1 batchEmbedContents
+    MAX_BATCH_SIZE = 90  # Giới hạn số lượng request tối đa trong 1 batchEmbedContents
 
     def __init__(
         self,
@@ -34,11 +34,12 @@ class GeminiEmbedder:
         self.session = requests.Session()
         self._query_cache: dict[str, np.ndarray] = {}
 
-    def _post_with_retry(self, url: str, payload: dict, max_retries: int = 4) -> dict:
+    def _post_with_retry(self, url: str, payload: dict, max_retries: int = 6) -> dict:
         """
-        Gửi HTTP POST sử dụng header 'x-goog-api-key' chuẩn của Google,
-        kèm Exponential Backoff + Jitter để vượt qua lỗi 429 (Rate Limit: 100 RPM / 30K TPM).
+        Gửi HTTP POST có đọc trực tiếp 'retryDelay' từ phản hồi 429 của Google
+        để chờ đúng số giây cửa sổ 1 phút reset.
         """
+        import re
         headers = {
             "Content-Type": "application/json",
             "x-goog-api-key": self.api_key
@@ -49,21 +50,28 @@ class GeminiEmbedder:
                     url,
                     json=payload,
                     headers=headers,
-                    timeout=45
+                    timeout=60
                 )
                 if response.status_code == 200:
                     return response.json()
 
                 if response.status_code in (429, 500, 502, 503, 504) and attempt < max_retries - 1:
-                    # Với quota 100 RPM / 30K TPM trên Free/Tier 1, nghỉ tăng dần 2s, 4s, 8s
-                    wait_time = (2 ** (attempt + 1)) + 0.5
+                    # Mặc định chờ 62s nếu bị 429 (để reset trọn vẹn cửa sổ 1 phút)
+                    wait_time = 62.0 if response.status_code == 429 else (5.0 * (attempt + 1))
+
+                    # Nếu Google trả về 'retry in XX.XXs' hoặc 'retryDelay: XXs', lấy chính xác số đó + 3s đệm
+                    m = re.search(r"retry in ([0-9.]+)s", response.text, re.IGNORECASE)
+                    if m:
+                        wait_time = float(m.group(1)) + 3.0
+
+                    print(f"\n[Embedding HTTP {response.status_code}] Chạm giới hạn 100 chunks/phút. Đang chờ {wait_time:.1f}s để reset phút mới...")
                     time.sleep(wait_time)
                     continue
 
                 raise RuntimeError(f"Gemini Embedding API lỗi ({response.status_code}): {response.text}")
             except requests.RequestException as e:
                 if attempt < max_retries - 1:
-                    time.sleep(2 ** (attempt + 1))
+                    time.sleep(5 * (attempt + 1))
                     continue
                 raise RuntimeError(f"Lỗi kết nối mạng khi gọi Gemini Embedding API: {e}") from e
         raise RuntimeError("Đã vượt quá số lần thử lại (max_retries) khi gọi Gemini API.")
@@ -127,7 +135,8 @@ class GeminiEmbedder:
                         req_item["title"] = parent_heading[:200]
 
                 requests_payload.append(req_item)
-
+                
+            t0 = time.time()
             data = self._post_with_retry(url, {"requests": requests_payload})
             embeddings_list = data.get("embeddings", [])
 
@@ -140,6 +149,12 @@ class GeminiEmbedder:
                 vec = emb_obj.get("values", [])
                 chunk.embedding = np.asarray(vec, dtype=np.float32)
                 all_vectors.append(vec)
+            
+            if start_idx + self.MAX_BATCH_SIZE < len(chunks):
+                elapsed = time.time() - t0
+                required_window = len(batch_chunks) * 0.62  # ~62s cho 100 chunks
+                if elapsed < required_window:
+                    time.sleep(required_window - elapsed)
 
         return np.asarray(all_vectors, dtype=np.float32)
 

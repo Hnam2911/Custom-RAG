@@ -2,6 +2,7 @@ import re
 from typing import List, Dict, Tuple, Optional
 from config import RAGConfig
 from schema import Chunk, SearchResult
+from retrieval.reranker import CrossEncoderReranker
 
 class RetrievalPostProcessor:
     """
@@ -12,6 +13,47 @@ class RetrievalPostProcessor:
     """
     def __init__(self, config: RAGConfig):
         self.config = config
+        
+    def merge_and_rerank(
+        self,
+        query: str,
+        local_results: List[SearchResult],
+        web_results: List[SearchResult],
+        reranker: Optional[CrossEncoderReranker] = None,
+        enable_merging: bool = True,
+        enable_lost_in_middle: bool = True
+    ) -> List[SearchResult]:
+        """
+        Thực thi luồng Hợp nhất ứng viên (M_local + M_web) -> Cross-Encoder Reranking -> Top-K:
+        1. Lọc sơ bộ các ứng viên dưới ngưỡng rrf_score_threshold ở từng nhánh.
+        2. Gộp các chunk liền kề/gối đầu trong cùng 1 file hoặc cùng 1 URL để tạo ngữ cảnh hoàn chỉnh.
+        3. Đưa toàn bộ ứng viên qua Cross-Encoder Reranker chấm điểm chéo với câu hỏi gốc q.
+        4. Cắt lấy top_k_final chunks tốt nhất và đảo vị trí chống Lost-in-the-Middle.
+        """
+        combined = [
+            r for r in (local_results + web_results)
+            if r.score >= self.config.rrf_score_threshold
+        ]
+        if not combined:
+            return []
+
+        if enable_merging and len(combined) > 1:
+            combined = self._merge_contiguous_results(combined)
+
+        if reranker is not None:
+            ranked_results = reranker.rerank(query, combined)
+        else:
+            ranked_results = sorted(combined, key=lambda r: r.score, reverse=True)
+
+        if not ranked_results:
+            return []
+
+        top_final = ranked_results[:self.config.top_k_final]
+
+        if enable_lost_in_middle and len(top_final) > 2:
+            return self._reorder_lost_in_the_middle(top_final)
+
+        return top_final
 
     def process(
         self,
@@ -185,14 +227,21 @@ class RetrievalPostProcessor:
             [s for s in (res_a.bm25_score, res_b.bm25_score) if s is not None],
             default=None
         )
-
+        
+        best_rerank_score = max(
+            [s for s in (res_a.rerank_score, res_b.rerank_score) if s is not None],
+            default=None
+        )
+        
         return SearchResult(
             chunk=merged_chunk,
             score=max(res_a.score, res_b.score),
             dense_rank=best_dense_rank,
             bm25_rank=best_bm25_rank,
             dense_score=best_dense_score,
-            bm25_score=best_bm25_score
+            bm25_score=best_bm25_score,
+            rerank_score=best_rerank_score,
+            source_branch=res_a.source_branch
         )
 
     @staticmethod

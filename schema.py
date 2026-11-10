@@ -54,6 +54,8 @@ class SearchResult:
     bm25_rank: Optional[int] = None
     dense_score: Optional[float] = None
     bm25_score: Optional[float] = None
+    rerank_score: Optional[float] = None
+    source_branch: str = "local"
     
 @dataclass
 class Citation:

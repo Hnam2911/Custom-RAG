@@ -35,11 +35,3 @@ def process_file_to_chunks(file_path: str, doc_id: str, config: RAGConfig) -> Li
         seq_counter += len(new_chunks)
 
     return all_chunks
-
-if __name__ == "__main__":
-    file_path="C:/Users/Admin/Project/Custom-RAG/tailieu.md"
-    config=RAGConfig()
-    chunks=process_file_to_chunks(file_path=file_path,doc_id='01',config=config)
-    for chunk in chunks:
-        pprint(chunk)
-    

@@ -1,7 +1,5 @@
 import re
 from typing import List
-
-from matplotlib.pylab import block
 from schema import RawBlock, Chunk
 
 class ManualRecursiveChunker:
