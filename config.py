@@ -8,7 +8,7 @@ class RAGConfig:
     llm_base_url: str = os.getenv("BASE_URL", "https://api.groq.com/openai/v1")
     llm_model: str = os.getenv("MODEL","")       # Tên model của bên cung cấp mới
     fallback_llm_model: str = "llama-3.1-8b-instant"  # Model dự phòng khi quá tải
-    max_rpm: int = 25                                 # Số request/phút của nhà cung cấp mới
+    max_rpm: int = 10                             # Số request/phút của nhà cung cấp mới
 
     # 2. Cấu hình Embedding (Giữ key Gemini cũ hoặc đổi sang Local / OpenAI Embedding)
     gemini_api_key: str = os.getenv("GEMINI_API_KEY", "YOUR_API_KEY_HERE")
@@ -16,7 +16,7 @@ class RAGConfig:
     embedding_dim: int = 768
     embedding_task: str = "search result"
     fallback_llm_model: str = "gemini-2.5-flash-lite"  # Tự động chuyển sang khi model chính bị 503
-    max_rpm: int = 8           # Số lượng yêu cầu tối đa mỗi phút (Requests Per Minute)
+    gemini_model: str = "gemini-3.5-flash-lite"
     
     # Tham số Chunking
     chunk_size: int = 800          # Độ dài mục tiêu của 1 chunk (ký tự)
