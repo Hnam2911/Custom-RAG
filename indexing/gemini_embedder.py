@@ -12,7 +12,7 @@ class GeminiEmbedder:
     cũng như tương thích ngược với 'models/gemini-embedding-001'.
     """
     BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
-    MAX_BATCH_SIZE = 90  # Giới hạn số lượng request tối đa trong 1 batchEmbedContents
+    MAX_BATCH_SIZE = 60 # Giới hạn số lượng request tối đa trong 1 batchEmbedContents
 
     def __init__(
         self,
@@ -138,6 +138,7 @@ class GeminiEmbedder:
                 
             t0 = time.time()
             data = self._post_with_retry(url, {"requests": requests_payload})
+            time.sleep(55)
             embeddings_list = data.get("embeddings", [])
 
             if len(embeddings_list) != len(batch_chunks):
